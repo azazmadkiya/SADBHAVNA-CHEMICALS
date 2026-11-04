@@ -1,0 +1,8 @@
+{
+  "name": "SADBHAVNA CHEMICALS",
+  "description": "WebView app for Sadbhavna Chemicals",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
