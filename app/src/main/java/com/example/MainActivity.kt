@@ -30,11 +30,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -59,7 +68,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -516,7 +524,7 @@ fun WebViewScreen(url: String) {
                                 webChromeClient = object : WebChromeClient() {
                                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                         loadProgress = newProgress / 100f
-                                        if (newProgress >= 100) {
+                                        if (newProgress >= 80) {
                                             isLoading = false
                                         }
                                     }
@@ -636,40 +644,14 @@ fun WebViewScreen(url: String) {
                     )
                 }
 
-                // Loading progress indicator
+                // Native App Loading Animation (Smooth crossfade into content)
                 AnimatedVisibility(
                     visible = isLoading && !hasError,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.TopCenter)
+                    enter = fadeIn(animationSpec = tween(150)),
+                    exit = fadeOut(animationSpec = tween(450)),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    LinearProgressIndicator(
-                        progress = { loadProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                    )
-                }
-
-                if (isLoading && loadProgress < 0.4f && !hasError) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(72.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shadowElevation = 6.dp
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("loading_spinner"),
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 3.dp
-                            )
-                        }
-                    }
+                    NativeAppLoadingScreen(modifier = Modifier.fillMaxSize())
                 }
 
                 // Offline Error View
@@ -773,6 +755,157 @@ fun OfflineErrorView(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun NativeAppLoadingScreen(
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = Color(0xFF031020)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(160.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(150.dp)
+                            .graphicsLayer {
+                                scaleX = pulseScale * 1.06f
+                                scaleY = pulseScale * 1.06f
+                                alpha = glowAlpha
+                            }
+                            .background(
+                                color = Color(0xFF0284C7).copy(alpha = 0.25f),
+                                shape = CircleShape
+                            )
+                    )
+
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Transparent,
+                        shadowElevation = 10.dp,
+                        modifier = Modifier
+                            .size(130.dp)
+                            .graphicsLayer {
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                            }
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_sadbhavna_logo),
+                            contentDescription = "SADBHAVNA CHEMICALS",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                Text(
+                    text = "SADBHAVNA CHEMICALS",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    letterSpacing = 2.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Quality Chemical Solutions",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF38BDF8),
+                    letterSpacing = 0.8.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                NativePulsingDots(
+                    color = Color(0xFF38BDF8),
+                    modifier = Modifier.height(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun NativePulsingDots(
+    color: Color = Color(0xFF38BDF8),
+    modifier: Modifier = Modifier
+) {
+    val dots = listOf(
+        remember { Animatable(0f) },
+        remember { Animatable(0f) },
+        remember { Animatable(0f) }
+    )
+
+    dots.forEachIndexed { index, animatable ->
+        LaunchedEffect(animatable) {
+            delay(index * 160L)
+            animatable.animateTo(
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                )
+            )
+        }
+    }
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        dots.forEach { dot ->
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .graphicsLayer {
+                        val scale = 0.5f + (dot.value * 0.7f)
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = 0.35f + (dot.value * 0.65f)
+                    }
+                    .background(color, CircleShape)
+            )
         }
     }
 }
