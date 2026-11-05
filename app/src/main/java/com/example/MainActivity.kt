@@ -241,8 +241,14 @@ fun WebViewScreen(url: String) {
         contentDisposition: String?,
         mimeType: String?
     ) {
+        val effectiveMime = if (mimeType.isNullOrBlank() || mimeType == "application/octet-stream" || mimeType == "binary/octet-stream") {
+            "application/pdf"
+        } else {
+            mimeType
+        }
+
         if (downloadUrl.startsWith("blob:")) {
-            val suggestedFileName = DownloadHelper.guessFileName(downloadUrl, contentDisposition, mimeType)
+            val suggestedFileName = DownloadHelper.guessFileName(downloadUrl, contentDisposition, effectiveMime)
             val js = """
                 (function() {
                     try {
@@ -255,7 +261,7 @@ fun WebViewScreen(url: String) {
                                 var reader = new FileReader();
                                 reader.readAsDataURL(blob);
                                 reader.onloadend = function() {
-                                    AndroidBlobDownloader.processBlob(reader.result, '$suggestedFileName', '$mimeType');
+                                    AndroidBlobDownloader.processBlob(reader.result, '$suggestedFileName', '$effectiveMime');
                                 }
                             }
                         };
@@ -272,18 +278,18 @@ fun WebViewScreen(url: String) {
                 context = context,
                 dataUriOrBase64 = downloadUrl,
                 suggestedFileName = null,
-                explicitMimeType = mimeType
+                explicitMimeType = effectiveMime
             )
             coroutineScope.launch {
                 val label = savedName ?: "file"
                 val snackbarResult = snackbarHostState.showSnackbar(
                     message = "Saved $label into Downloads/SADBHAVNA CHEMICALS",
-                    actionLabel = "Open",
+                    actionLabel = "Open PDF",
                     duration = SnackbarDuration.Long
                 )
                 if (snackbarResult == SnackbarResult.ActionPerformed) {
                     if (savedFile != null && savedFile.exists()) {
-                        DownloadHelper.openFile(context, savedFile, mimeType)
+                        DownloadHelper.openFile(context, savedFile, effectiveMime)
                     } else {
                         DownloadHelper.openDownloadsFolder(context)
                     }
@@ -306,23 +312,38 @@ fun WebViewScreen(url: String) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED
             ) {
-                pendingDownload = PendingDownload(downloadUrl, userAgent, contentDisposition, mimeType)
+                pendingDownload = PendingDownload(downloadUrl, userAgent, contentDisposition, effectiveMime)
                 storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 return
             }
         }
 
-        val result = DownloadHelper.enqueueDownload(
-            context = context,
-            url = downloadUrl,
-            userAgent = userAgent,
-            contentDisposition = contentDisposition,
-            mimeType = mimeType
-        )
+        coroutineScope.launch {
+            var actualDisposition = contentDisposition
+            var actualMime = effectiveMime
 
-        if (result != null) {
-            val (_, fileName) = result
-            coroutineScope.launch {
+            if (actualDisposition.isNullOrBlank() && (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://"))) {
+                val (fetchedCd, fetchedMime) = withContext(Dispatchers.IO) {
+                    DownloadHelper.fetchHeaders(downloadUrl, userAgent)
+                }
+                if (!fetchedCd.isNullOrBlank()) {
+                    actualDisposition = fetchedCd
+                }
+                if (!fetchedMime.isNullOrBlank() && (actualMime == "application/pdf" || actualMime == "application/octet-stream")) {
+                    actualMime = fetchedMime
+                }
+            }
+
+            val result = DownloadHelper.enqueueDownload(
+                context = context,
+                url = downloadUrl,
+                userAgent = userAgent,
+                contentDisposition = actualDisposition,
+                mimeType = actualMime
+            )
+
+            if (result != null) {
+                val (_, fileName) = result
                 val actionResult = snackbarHostState.showSnackbar(
                     message = "Downloading $fileName into Downloads/SADBHAVNA CHEMICALS",
                     actionLabel = "View Folder",
@@ -354,17 +375,23 @@ fun WebViewScreen(url: String) {
                                 cursor.close()
 
                                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                                    val dir = DownloadHelper.getAppDownloadsDir()
+                                    DownloadHelper.autoFixBinFiles(context, dir)
+                                    val pdfTitle = if (title.endsWith(".bin", ignoreCase = true)) {
+                                        title.substringBeforeLast(".") + ".pdf"
+                                    } else {
+                                        title
+                                    }
                                     coroutineScope.launch {
                                         val snackbarResult = snackbarHostState.showSnackbar(
-                                            message = "Downloaded $title to Downloads/SADBHAVNA CHEMICALS",
-                                            actionLabel = "Open",
+                                            message = "Downloaded $pdfTitle to Downloads/SADBHAVNA CHEMICALS",
+                                            actionLabel = "Open PDF",
                                             duration = SnackbarDuration.Long
                                         )
                                         if (snackbarResult == SnackbarResult.ActionPerformed) {
-                                            val dir = DownloadHelper.getAppDownloadsDir()
-                                            val file = File(dir, title)
+                                            val file = File(dir, pdfTitle)
                                             if (file.exists()) {
-                                                DownloadHelper.openFile(context, file, null)
+                                                DownloadHelper.openFile(context, file, "application/pdf")
                                             } else {
                                                 DownloadHelper.openDownloadsFolder(context)
                                             }
@@ -402,8 +429,9 @@ fun WebViewScreen(url: String) {
         }
     }
 
-    // Check connectivity on initial launch
+    // Check connectivity and auto-fix any previously downloaded .bin files into .pdf
     LaunchedEffect(Unit) {
+        DownloadHelper.autoFixBinFiles(context)
         val connected = checkInternetConnectivity(context)
         if (!connected) {
             hasError = true
@@ -513,11 +541,16 @@ fun WebViewScreen(url: String) {
 
                                 // WebView Download Listener
                                 setDownloadListener { downloadUrl, userAgent, contentDisposition, mimetype, _ ->
+                                    val resolvedMime = if (mimetype.isNullOrBlank() || mimetype == "application/octet-stream" || mimetype == "binary/octet-stream") {
+                                        "application/pdf"
+                                    } else {
+                                        mimetype
+                                    }
                                     startDownload(
                                         downloadUrl = downloadUrl,
                                         userAgent = userAgent,
                                         contentDisposition = contentDisposition,
-                                        mimeType = mimetype
+                                        mimeType = resolvedMime
                                     )
                                 }
 
@@ -569,9 +602,9 @@ fun WebViewScreen(url: String) {
                                             }
                                         }
 
-                                        // Intercept downloadable file links (PDFs, docs, archives, sheets)
+                                        // Intercept direct file extension links
                                         val path = uri.path?.lowercase() ?: ""
-                                        val isDirectDownload = path.endsWith(".pdf") ||
+                                        val isDirectFileExtension = path.endsWith(".pdf") ||
                                                 path.endsWith(".docx") || path.endsWith(".doc") ||
                                                 path.endsWith(".xlsx") || path.endsWith(".xls") ||
                                                 path.endsWith(".csv") || path.endsWith(".zip") ||
@@ -579,12 +612,13 @@ fun WebViewScreen(url: String) {
                                                 path.endsWith(".7z") || path.endsWith(".tar") ||
                                                 path.endsWith(".gz")
 
-                                        if (isDirectDownload) {
+                                        if (isDirectFileExtension) {
+                                            val forcedMime = if (path.endsWith(".pdf")) "application/pdf" else null
                                             startDownload(
                                                 downloadUrl = urlString,
                                                 userAgent = settings.userAgentString,
                                                 contentDisposition = null,
-                                                mimeType = null
+                                                mimeType = forcedMime
                                             )
                                             return true
                                         }
